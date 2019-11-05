@@ -91,7 +91,7 @@ class Environment:
         # 分配 VNF 之后，再移动至下一个 idle 时刻
         next_idle_time = self.step_inside()
 
-        # 如果下一个 idle时刻有新的 SFC到达，则加入 SFC和 VNF队列
+        # todo 如果下一个 idle时刻有新的 SFC到达，则加入 SFC和 VNF队列
         self.add_to_unfinished_set_and_ready_set(time=next_idle_time)
 
         while self.block_by_no_ready_sfc():  # 被 Ready队列阻塞（Ready为空）
@@ -154,40 +154,33 @@ class Environment:
 
         for vm in finishing_vms:
             vnf = vm.last_vnf
-            print("完成的 VNF:", (vnf.idx, vnf.sfc_dag.idx, vnf.finished_type))
-            vnf_to_free_in_queue = [v for v in self.ready_vnfs if v.sfc_dag is vnf.sfc_dag]
-            print("等待队列中需要释放的 VNF:", [(v.idx, v.sfc_dag.idx) for v in vnf_to_free_in_queue])
-            if vnf.finished_type is Vnf_Finished_Type.Finished:  # 成功而 idle的
-                vnf.finished_type = None
+            print("完成的 VNF:", (vnf.idx, vnf.sfc_idx, vm.vnf_finished_type))
+            if vm.vnf_finished_type is Vnf_Finished_Type.Finished:  # 成功而 idle的
                 # 告知同级结点，更新相关机器的 idle时间
-                vnf.set_siblings_finish_time(next_idle)
-                # 在 vnf ready队列中移除没有开始的结点（Free）
-                self.ready_vnfs.difference_update(vnf_to_free_in_queue)
+                vnf.update_redundancy_finish_time(vm.vnf_record)
                 # 如果该 vnf有后继结点，加入 Ready队列呀，如果没有的话 SFC就执行完了呢
-                if vnf.child_nodes:
-                    self.add_to_ready_set(vnf.child_nodes)
-                    print('添加的后续结点个数:', len(vnf.child_nodes))
-                    print('添加的后续结点:', [(c.idx, c.sfc_dag.idx) for c in vnf.child_nodes])
+                if vnf.next_vnf:
+                    self.add_to_ready_set(vnf.next_vnf)
+                    print('添加的后续结点:', (vnf.next_vnf.idx, vnf.next_vnf.sfc_idx))
                 else:  # 没有后继结点，说明执行完毕
-                    vnf.sfc_dag.completion_time = next_idle
-                    self.completed_sfcs.add(vnf.sfc_dag)
-                    if next_idle <= vnf.sfc_dag.deadline:  # 如果达到了时延要求
-                        self.satisfied_deadline_sfcs.add(vnf.sfc_dag)
-                    self.unfinished_sfcs.discard(vnf.sfc_dag)
-                    print("完成SFC:", vnf.sfc_dag.idx)
-            elif vnf.finished_type is Vnf_Finished_Type.Failed:  # 由于失败而 idle的
-                if vnf.isAllFailed():  # 如果全失败了，SFC 失败
-                    self.set_an_sfc_failed(vnf.sfc_dag)
-            # self.update_vms_at_next_idle(next_idle)
+                    vnf.sfc.completion_time = next_idle
+                    self.completed_sfcs.add(vnf.sfc)
+                    if next_idle <= vnf.sfc.deadline:  # 如果达到了时延要求
+                        self.satisfied_deadline_sfcs.add(vnf.sfc)
+                    self.unfinished_sfcs.discard(vnf.sfc)
+                    vnf.sfc.completed = True
+                    print("完成SFC:", vnf.sfc.idx)
+            elif vm.vnf_finished_type is Vnf_Finished_Type.Failed:  # 由于失败而 idle的
+                if vnf.is_all_failed():  # 如果全失败了，SFC 失败
+                    self.set_an_sfc_failed(vnf.sfc)
         return next_idle
 
     def update_vms_at_next_idle(self, next_idle):
         for vm in self.vm_nodes:
-            # todo 检查是成功还是失败，如果完全失败就要做相关操作
             vm.update_vm_status(next_idle)
 
     def set_an_sfc_failed(self, sfc):
-        sfc.failed = True  # SFC 失败
+        sfc.isFailed = True  # SFC 失败
         self.unfinished_sfcs.discard(sfc)
         self.failed_sfcs.add(sfc)
         print("失败SFC:", sfc)
@@ -250,9 +243,9 @@ class Environment:
         # 2.1 如果成功，设置 vnf结点的完成时间
         if succeed:
             # 记录执行信息
-            exec_id = vnf.record_an_execution(start_time, completion_time, vm, Vnf_Finished_Type.Finished)
+            record = vnf.record_an_execution(start_time, completion_time, vm, Vnf_Finished_Type.Finished)
             # 更新 vm 结点的信息
-            vm.assign_a_vnf(vnf.sfc_dag, vnf, completion_time, exec_id)
+            vm.assign_a_vnf(vnf.sfc, vnf, completion_time, record)
 
         # 2.2 如果失败，设置 vnf结点的失败时间
         else:
@@ -260,7 +253,7 @@ class Environment:
             # 记录执行信息
             exec_id = vnf.record_an_execution(start_time, fail_time, vm, Vnf_Finished_Type.Failed)
             # 更新 vm 结点的信息
-            vm.assign_a_vnf(vnf.sfc_dag, vnf, fail_time, exec_id)
+            vm.assign_a_vnf(vnf.sfc, vnf, fail_time, exec_id)
 
     def seed(self, seed):
         self.np_random.seed(seed)

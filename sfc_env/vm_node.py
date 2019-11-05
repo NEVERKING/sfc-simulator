@@ -1,5 +1,4 @@
 from sfc_env.util import Vm_State
-import numpy as np
 
 
 class VM:
@@ -20,17 +19,17 @@ class VM:
         # 待初始化
         self.current_vnf = None
         self.current_sfc = None
-        self.vnf_record_id = None
+        self.vnf_record = None
         self.vnf_finished_type = None
 
-    def assign_a_vnf(self, sfc, vnf, end_time, vnf_finished_type, record_id):
+    def assign_a_vnf(self, sfc, vnf, end_time, vnf_finished_type, vnf_record):
         self.current_sfc = sfc
         self.current_vnf = vnf
         # end_time 可以是失败时间，也可以是成功执行完成时间
         self.next_idle_time = end_time
         self.state = Vm_State.Running
         self.vnf_finished_type = vnf_finished_type
-        self.vnf_record_id = record_id
+        self.vnf_record = vnf_record
 
     def update_vm_status(self, time):
         if time == self.next_idle_time:  # 此时刚好完成，env 需要更新信息

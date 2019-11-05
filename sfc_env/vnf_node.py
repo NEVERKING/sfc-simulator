@@ -1,18 +1,14 @@
 import numpy as np
 
-from sfc_env.util import Vnf_Finished_Type
+from sfc_env.util import Vnf_Finished_Type, Vm_State
 
 
 class Exec_Record:
     def __init__(self, start_time, end_time, vm_node, vnf_finished_type):
         self.start_time = start_time
         self.vm_node = vm_node
-        if vnf_finished_type is Vnf_Finished_Type.Finished:
-            self.finish_time = end_time
-            self.finished_type = Vnf_Finished_Type.Finished
-        elif vnf_finished_type is Vnf_Finished_Type.Failed:
-            self.fail_time = end_time
-            self.finished_type = Vnf_Finished_Type.Failed
+        self.finish_time = end_time
+        self.finished_type = vnf_finished_type
 
 
 class VNF_Node:
@@ -54,9 +50,26 @@ class VNF_Node:
         assert len(self.records) < self.redundancy
         self.records.append(Exec_Record(start_time, end_time, vm_node, vnf_finished_type))
         self.exec_times += 1
-        return self.exec_times
+        return self.records[self.exec_times - 1]
 
     def get_a_record(self, record_id):
         assert record_id > 0
         assert record_id <= self.redundancy
-        return self.records[record_id-1]
+        return self.records[record_id - 1]
+
+    def update_redundancy_finish_time(self, record):
+        for i, r in enumerate(self.records):
+            if not (record is r) and record.finish_time <= r.finish_time:
+                print('中断其它冗余:', i)
+                r.finish_time = record.finish_time
+                r.finish_type = Vnf_Finished_Type.Free
+                r.vm_node.next_idle_time = record.finish_time
+                r.vm_node.last_completion_time = record.finish_time
+                r.vm_node.state = Vm_State.Idle
+
+    def is_all_failed(self):
+        for r in self.records:
+            if not (r.finish_type is Vnf_Finished_Type.Failed):
+                return True
+        else:
+            return False
